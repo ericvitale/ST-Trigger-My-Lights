@@ -42,14 +42,14 @@ def mainPage() {
         
         section("Dimmers") {
         	input "dimmers", "capability.switchLevel", title: "Dimmers", multiple: true, required: false
-            input "selectedDimmerLevel", "number", title: "Dimmer Level", description: "Set your dimmers to...", required: false, defaultValue: 100
+            input "selectedDimmersLevel", "number", title: "Dimmer Level", description: "Set your dimmers to...", required: false, defaultValue: 100
         }
         
-        section("Color Lights") {
+        /*section("Color Lights") {
         	input "colorLights", "capability.colorControl", title: "Color Lights", multiple: true, required: false
             input "selectedColorLightsColor", "enum", title: "Select Color", required: false, options: ["Blue", "Green", "Red", "Yello", "Orange", "Pink", "Purple", "Random"]
             input "selectedColorLightsLevel", "number", title: "Level", required: false, defaultValue: 100
-        }
+        }*/
         
         section("Color Temperature Lights") {
         	input "colorTemperatureLights", "capability.colorTemperature", title: "Color Temperature Lights", multiple: true, required: false
@@ -68,9 +68,18 @@ def mainPage() {
             input "contacts", "capability.contactSensor", title: "Contact Sensors", multiple: true, required: false
 		}
         
+        section("Modes / Routines") {
+        	input "modes", "mode", title: "When Changes to Mode(s)", multiple: true, required: false
+            input "routine", "text", title: "When Routine is Executed", multiple: false, required: false
+            //input "routines", "routine", title: "When Routine(s) is Executed", multiple: true, required: false
+            
+        }
+        
         section("Restrictions") {
         	//input "modes", "mode", title: "Only in Modes", multiple: true, required: false
-            //input "useTimeRange", "bool", title: "Only in Time Range", required: false, defaultValue: false
+            //input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: true
+            //input "sunriseOffset", "number", title: "Sunrise Offset", required: false
+           	//input "sunsetOffset", "number", title: "Sunset Offset", required: false
             input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
         }
     
@@ -131,16 +140,28 @@ def updated() {
 	unsubscribe()
     unschedule()
 	initalization()
+	setAllLights("on")
+    setAllLights("off")
+	setAllLights("on")
+    setAllLights("off")
     log("End updated().", "DEBUG")
 }
 
 def initalization() {
 	log("Begin intialization().", "DEBUG")
     
+    log("useTimer = ${useTimer}.", "INFO")
+    log("active = ${active}.", "INFO")
+    log("timer = ${timer}.", "INFO")
+    
+    //log("time = ${location.currentValue('sunsetTime')}.", "DEBUG")
+    
     if(active) {
-    	subscribe(motionSensors, "motion", motionHandler)
+    	subscribe(motionSensors, "motion.active", motionHandler)
         subscribe(accSensors, "acceleration.active", accelerationHandler)
         subscribe(contacts, "contact.open", contactHandler)
+        subscribe(location, modeHandler)
+        subscribe(location, "routineExecuted", routineHandler)
         log("Subscriptions to devices made.", "INFO")   
     } else {
     	log("App is set to inactive in settings.", "INFO")
@@ -169,22 +190,52 @@ def contactHandler(evt) {
     log("End contactHandler(evt).", "DEBUG")
 }
 
+def modeHandler(evt) {
+	log("Begin modeHandler(evt).", "DEBUG")
+	log("Mode changed to ${evt.value}.", "DEBUG")
+    
+    modes.each { it-> 
+    	if(it.toLowerCase() == evt.value.toLowerCase()) {
+        	log("Mode: ${it} matches input selection, triggering lights.", "DEBUG")
+        	triggerLights()
+            return
+        }
+    }
+    
+	log("End modeHandler(evt).", "DEBUG")
+}
+
+def routineHandler(evt) {
+    log("Begin routineHandler(evt).", "DEBUG")
+    
+    log("routine = ${routine}.", "DEBUG")
+    log("event = ${evt.displayName}.", "DEBUG")
+    
+    if(routine.toLowerCase() == evt.displayName.toLowerCase()) {
+    	log("Routine: ${it} matches input selection, triggering lights.", "DEBUG")
+        triggerLights()
+     	return
+    }
+    log("End routineHandler(evt).", "DEBUG")
+}
+
 def triggerLights() {
 	log("Begin triggerLights().", "DEBUG")
+    
+    log("isRoomActive = ${isRoomActive}.", "DEBUG")
 
     if(!isRoomActive()) {
     	setSwitches()
-        setDimmers(selectedDimmerLevel)
-        setColorLights(selectedColorLightsLevel, selectedColorLightsColor)
+        setDimmers(selectedDimmersLevel)
+        //setColorLights(selectedColorLightsLevel, selectedColorLightsColor)
         setColorTemperatureLights(selectedColorTemperatureLightsLevel, selectedColorTemperatureLightsTemperature)
-        setColorLights(selectedColorLightsLevel, selectedColorLightsColor)
 		setRoomActive(true)
         log("Lights triggered.", "INFO")
         
         if(useTimer) {
         	setSchedule()
         } else {
-        	runIn(60, reset)
+        	runIn(60, resetRoomStatus)
         }
     } else {
     	log("Room is active, ignorining command.", "DEBUG")
@@ -204,11 +255,9 @@ def setSwitches() {
 }
 
 def setDimmers(valueLevel) {
-	log("Begin setDimmers(onOff, value).", "DEBUG")
     
     dimmers.each { it->
-    	it.setLevel(valueLevel)
-        it.on()
+   		it.on()
     }
     
     log("End setDimmers(onOff, value).", "DEBUG")
@@ -327,10 +376,10 @@ def setRoomActive(val) {
     log("End setRoomActive().", "DEBUG")
 }
 
-def reset() {
-	log("Begin reset().", "DEBUG")
+def resetRoomStatus() {
+	log("Begin resetRoomStatus().", "DEBUG")
 	setRoomActive(false)
-	log("End reset().", "DEBUG")
+	log("End resetRoomStatus().", "DEBUG")
 }
 
 def getColorMap(val) {
@@ -359,4 +408,17 @@ def getColorMap(val) {
     }
     
 	return colorMap
+}
+
+def getWithinTimeRange() {
+
+	if(state.timeRange == null) {
+    	return false
+    } else {
+    	return state.timeRange
+    }
+}
+
+def setWithinTimeRange(val) {
+	state.timeRange = val
 }
