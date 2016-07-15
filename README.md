@@ -3,6 +3,8 @@
 ## Summary
 Trigger My Lights is a smart app that allows you to set parameters for switches, dimmers, smart color lights, smart white lights based on events from 1 to n motion sensors, 1 to n accelerometers, 1 to n contact sensors, mode changes, & when a routine is executed.
 
+If you have several scenarios you would like to control, just install the app from "My Apps" multiple times.
+
 ## Example Scenarios
 1. Turn the garage lights on (switch) when the inside garage door is opened (contact sensor), the garage door is opened (accelerometer), or the one of the garage windows are opened (contact sensor).
 2. Turn the hallway lights on, level to 5% and temperature to 2750K (smart white light) if motion is detected in the hallway and it is after sundown. FYI - Sunrise / Sundown feature coming soon.
