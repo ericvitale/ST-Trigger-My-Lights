@@ -2,7 +2,8 @@
  *  Trigger My Lights
  *  Version 1.0.0 - 07/11/16
  *
- *  1.0.0 - Initial release
+ * 1.0.1 - Added Dim over time functionality 
+ * 1.0.0 - Initial release
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -81,6 +82,12 @@ def mainPage() {
             //input "sunriseOffset", "number", title: "Sunrise Offset", required: false
            	//input "sunsetOffset", "number", title: "Sunset Offset", required: false
             input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
+        }
+        
+        section("Gradual Dim") {
+        	input "gradualDim", "bool", title: "Dim Over Time?", required: true, defaultValue: false
+            input "dimOverMinutes", "number", title: "Dim Over Minutes", required: false
+            input "dimToLevel", "number", title: "Dim to Level", required: false
         }
     
 	    section([mobileOnly:true], "Options") {
@@ -162,12 +169,19 @@ def initalization() {
         subscribe(contacts, "contact.open", contactHandler)
         subscribe(location, modeHandler)
         subscribe(location, "routineExecuted", routineHandler)
+        subscribe(switches, "switch.on", switchHandler)
         log("Subscriptions to devices made.", "INFO")   
     } else {
     	log("App is set to inactive in settings.", "INFO")
     }
     
     setRoomActive(false)
+    
+    if(gradualDim) {
+        state.dimMinutes = dimOverMinutes
+        state.dimRemainingMinutes = dimOverMinutes
+        state.dimLevel = dimToLevel
+    }
 
     log("End initialization().", "DEBUG")
 }
@@ -217,6 +231,12 @@ def routineHandler(evt) {
      	return
     }
     log("End routineHandler(evt).", "DEBUG")
+}
+
+def switchHandler(evt) {
+	log("Begin switchHandler(evt).", "DEBUG")
+    dimOverTime()
+    log("End switchHandler(evt).", "DEBUG")
 }
 
 def triggerLights() {
@@ -421,4 +441,24 @@ def getWithinTimeRange() {
 
 def setWithinTimeRange(val) {
 	state.timeRange = val
+}
+
+def dimOverTime() {
+
+	log("dimOverTime ${state.dimRemainingMinutes}.", "DEBUG")
+	dimmers.each { it->
+        log("it.currentValue() = ${it.currentValue('level')}.", "DEBUG")
+        log("state.dimLevel = ${state.dimLevel}.", "DEBUG")
+        log("state.dimRemainingMinutes = ${state.dimRemainingMinutes}.", "DEBUG")
+        log("calculated level = ${it.currentValue('level') - ((it.currentValue('level') - state.dimLevel) / state.dimRemainingMinutes)}.", "DEBUG")
+        
+    	it.setLevel(it.currentValue('level') - ((it.currentValue('level') - state.dimLevel) / state.dimRemainingMinutes))
+
+    }
+    
+    state.dimRemainingMinutes = state.dimRemainingMinutes - 1
+    
+    if(--state.dimRemainingMinutes >= 0 && gradualDim) {
+	    runIn(15, dimOverTime)
+    }    
 }
