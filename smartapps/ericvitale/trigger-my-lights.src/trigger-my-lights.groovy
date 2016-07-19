@@ -2,7 +2,13 @@
  *  Trigger My Lights
  *  Version 1.0.0 - 07/11/16
  *
- *  1.0.0 - Initial release
+ *  1.0.1 - 07/18/16
+ *   -- Feature: Ability to only execute between sunset and sunrise.
+ *   -- Behavior Change: If motion lights will not turn off while there is still motion in the room / area with selected 
+ *      motion sensors.
+ *   -- Feature: Ability to only execute between a specified time range.
+ *  1.0.0 - 07/11/16
+ *   -- Initial Release
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -58,7 +64,7 @@ def mainPage() {
         }
         
         section("Schedule") {
-        	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: false
+        	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: true
         	input "timer", "number", title: "Minutes", required: false, defaultValue: 10
         }
    	
@@ -75,16 +81,22 @@ def mainPage() {
             
         }
         
-        section("Restrictions") {
+        section("Follow the Sun") {
         	//input "modes", "mode", title: "Only in Modes", multiple: true, required: false
-            //input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: true
-            //input "sunriseOffset", "number", title: "Sunrise Offset", required: false
-           	//input "sunsetOffset", "number", title: "Sunset Offset", required: false
-            input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
+            input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: false
+            input "sunriseOffset", "number", title: "Sunrise Offset", range: "-720..720", required: true, defaultValue: 0
+           	input "sunsetOffset", "number", title: "Sunset Offset", range: "-720..720", required: true, defaultValue: 0            
+        }
+        
+        section("Time Range") {
+            input "useTimeRange", "bool", title: "Use Custom Time Range?", required: true, defaultValue: false
+            input "startTime", "time", title: "Start Time", required: false
+            input "endTime", "time", title: "End Time", required: false
         }
     
 	    section([mobileOnly:true], "Options") {
 			label(title: "Assign a name", required: false)
+            input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
             input "logging", "enum", title: "Log Level", required: true, defaultValue: "DEBUG", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
     	}
 	}
@@ -106,7 +118,7 @@ def determineLogLevel(data) {
 
 def log(data, type) {
     
-    data = "NameTBD -- " + data
+    data = "TML -- " + data
     
     try {
         if(determineLogLevel(type) >= determineLogLevel(logging)) {
@@ -121,7 +133,7 @@ def log(data, type) {
             } else if(type.toUpperCase() == "ERROR") {
                 log.error "${data}"
             } else {
-                log.error "Toggimmer -- Invalid Log Setting"
+                log.error "TML -- Invalid Log Setting"
             }
         }
     } catch(e) {
@@ -140,9 +152,6 @@ def updated() {
 	unsubscribe()
     unschedule()
 	initalization()
-	setAllLights("on")
-    setAllLights("off")
-	setAllLights("on")
     setAllLights("off")
     log("End updated().", "DEBUG")
 }
@@ -153,8 +162,34 @@ def initalization() {
     log("useTimer = ${useTimer}.", "INFO")
     log("active = ${active}.", "INFO")
     log("timer = ${timer}.", "INFO")
+    log("useTheSun = ${useTheSun}.", "INFO")
     
-    //log("time = ${location.currentValue('sunsetTime')}.", "DEBUG")
+    if(useTheSun == true) {
+    	if(sunriseOffset == null) { sunriseOffset = 0 }
+        if(sunsetOffset == null) { sunsetOffset = 0 }
+   	}
+    
+    log("sunsetOffset = ${sunsetOffset}.", "INFO")
+    log("sunriseOffset = ${sunriseOffset}.", "INFO")
+    log("Sunrise with Offset of ${sunriseOffset} = ${getSunrise(getOffsetString(sunriseOffset))}.", "INFO")
+    log("Sunset with Offset of ${sunsetOffset} = ${getSunset(getOffsetString(sunsetOffset))}.", "INFO")
+    
+    log("Use Time Range = ${useTimeRange}.", "DEBUG")
+    
+    if(useTimeRange == true) {
+	    if(startTime == null || endTime == null) {
+    		useTimeRange = false
+            log("Invalid start/end time, turning time range control off.", "ERROR")
+    	} else {
+        	log("Start Time = ${startTime}.", "DEBUG")
+            log("End Time = ${endTime}.", "DEBUG")
+        }
+    }
+    
+    if(useTheSun == true && useTimeRange == true) {
+    	log("Both 'Use the Sun' & 'Use Time Range' enabled, defaulting to 'Use the Sun', check your settings!", "ERROR")
+        useTimeRange = false
+    }
     
     if(active) {
     	subscribe(motionSensors, "motion.active", motionHandler)
@@ -174,7 +209,21 @@ def initalization() {
 
 def motionHandler(evt) {
 	log("Begin motionHandler(evt).", "DEBUG")
-	triggerLights()
+    
+    log("isRoomActive = ${isRoomActive()}.", "DEBUG")
+    
+    if(isRoomActive()) {
+    	if(useTimer) {
+			log("Room is still active, reseting OFF time.", "DEBUG")
+			unschedule()
+            setSchedule()
+        } else {
+        	runIn(60, resetRoomStatus)
+        }
+    } else {
+    	triggerLights()
+    }
+    
     log("End motionHandler(evt).", "DEBUG")
 }
 
@@ -223,6 +272,26 @@ def triggerLights() {
 	log("Begin triggerLights().", "DEBUG")
     
     log("isRoomActive = ${isRoomActive}.", "DEBUG")
+    
+    def currentDate = new Date()
+    
+    if(useTheSun) {
+    	if(isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset))) && isAfter(currentDate, getSunset(getOffsetString(sunsetOffset)))) {
+        	log("The sun is up, ignoring triggers.", "DEBUG")
+            return
+        } else {
+        	log("The sun is down!", "DEBUG")
+        }
+    }
+    
+    if(useTimeRange) {
+    	if(isBefore(currentDate, startTime) && isAfter(currentDate, endTime)) {
+        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
+            return
+        } else {
+        	log("Time is within time range!", "DEBUG")
+        }
+    }
 
     if(!isRoomActive()) {
     	setSwitches()
@@ -232,11 +301,6 @@ def triggerLights() {
 		setRoomActive(true)
         log("Lights triggered.", "INFO")
         
-        if(useTimer) {
-        	setSchedule()
-        } else {
-        	runIn(60, resetRoomStatus)
-        }
     } else {
     	log("Room is active, ignorining command.", "DEBUG")
     }
@@ -284,10 +348,10 @@ def setColorLights(valueLevel, valueColor) {
 }
 
 def setColorTemperatureLights(valueLevel, valueColorTemperature) {
-	log("Begin setColorTemperatureLights(onOff, valueLevel, valueColorTemperature).", "DEBUG")
+	log("Begin setColorTemperatureLights(, valueLevel, valueColorTemperature).", "DEBUG")
     
     colorTemperatureLights.each { it->
-    	it.setLevel(value)
+    	it.setLevel(valueLevel)
         it.setColorTemperature(valueColorTemperature)
         it.on()
     }
@@ -410,15 +474,54 @@ def getColorMap(val) {
 	return colorMap
 }
 
-def getWithinTimeRange() {
+/////// Begin Time / Date Methods ///////////////////////////////////////////////////////////
 
-	if(state.timeRange == null) {
-    	return false
+def minutesBetween(time1, time2) {
+	return (time1.getTime() - time2.getTime())/1000/60
+}
+
+def isBefore(time1, time2) {
+	if(minutesBetween(time1, time2) <= 0) {
+    	return true
     } else {
-    	return state.timeRange
+    	return false
     }
 }
 
-def setWithinTimeRange(val) {
-	state.timeRange = val
+def isAfter(time1, time2) {
+	if(minutesBetween(time1, time2) > 0) {
+    	return true
+    } else {
+    	return false
+    }
 }
+
+def getSunset() {
+	return getSunset("00:00")
+}
+
+def getSunrise() {
+	return getSunrise("00:00")
+}
+
+def getSunset(offset) {
+	return getSunriseAndSunset(sunsetOffset: offset).sunset
+}
+
+def getSunrise(offset) {
+	return getSunriseAndSunset(sunriseOffset: offset).sunrise
+}
+
+def getOffsetString(offsetMinutes) {
+	int hours = Math.abs(offsetMinutes) / 60; //since both are ints, you get an int
+	int minutes = Math.abs(offsetMinutes) % 60;
+    def sign = (offsetMinutes >= 0) ? "" : "-"
+	def offsetString = "${sign}${hours.toString().padLeft(2, "0")}:${minutes.toString().padLeft(2, "0")}"
+	return offSetString
+}
+
+def inputDateToDate(val) {
+	return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
+}
+
+/////// End Time / Date Methods ///////////////////////////////////////////////////////////
