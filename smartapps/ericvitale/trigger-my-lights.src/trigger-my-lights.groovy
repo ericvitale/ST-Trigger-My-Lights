@@ -3,9 +3,10 @@
  *  Version 1.0.0 - 07/11/16
  *
  *  1.0.1 - 07/18/16
- *   -- Feature: Ability to only execute between sunset and sunrise
+ *   -- Feature: Ability to only execute between sunset and sunrise.
  *   -- Behavior Change: If motion lights will not turn off while there is still motion in the room / area with selected 
  *      motion sensors.
+ *   -- Feature: Ability to only execute between a specified time range.
  *  1.0.0 - 07/11/16
  *   -- Initial Release
  *
@@ -63,7 +64,7 @@ def mainPage() {
         }
         
         section("Schedule") {
-        	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: false
+        	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: true
         	input "timer", "number", title: "Minutes", required: false, defaultValue: 10
         }
    	
@@ -80,16 +81,22 @@ def mainPage() {
             
         }
         
-        section("Restrictions") {
+        section("Follow the Sun") {
         	//input "modes", "mode", title: "Only in Modes", multiple: true, required: false
-            input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: true
+            input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: false
             input "sunriseOffset", "number", title: "Sunrise Offset", range: "-720..720", required: true, defaultValue: 0
-           	input "sunsetOffset", "number", title: "Sunset Offset", range: "-720..720", required: true, defaultValue: 0
-            input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
+           	input "sunsetOffset", "number", title: "Sunset Offset", range: "-720..720", required: true, defaultValue: 0            
+        }
+        
+        section("Time Range") {
+            input "useTimeRange", "bool", title: "Use Custom Time Range?", required: true, defaultValue: false
+            input "startTime", "time", title: "Start Time", required: false
+            input "endTime", "time", title: "End Time", required: false
         }
     
 	    section([mobileOnly:true], "Options") {
 			label(title: "Assign a name", required: false)
+            input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
             input "logging", "enum", title: "Log Level", required: true, defaultValue: "DEBUG", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
     	}
 	}
@@ -157,7 +164,6 @@ def initalization() {
     log("timer = ${timer}.", "INFO")
     log("useTheSun = ${useTheSun}.", "INFO")
     
-    
     if(useTheSun == true) {
     	if(sunriseOffset == null) { sunriseOffset = 0 }
         if(sunsetOffset == null) { sunsetOffset = 0 }
@@ -167,6 +173,23 @@ def initalization() {
     log("sunriseOffset = ${sunriseOffset}.", "INFO")
     log("Sunrise with Offset of ${sunriseOffset} = ${getSunrise(getOffsetString(sunriseOffset))}.", "INFO")
     log("Sunset with Offset of ${sunsetOffset} = ${getSunset(getOffsetString(sunsetOffset))}.", "INFO")
+    
+    log("Use Time Range = ${useTimeRange}.", "DEBUG")
+    
+    if(useTimeRange == true) {
+	    if(startTime == null || endTime == null) {
+    		useTimeRange = false
+            log("Invalid start/end time, turning time range control off.", "ERROR")
+    	} else {
+        	log("Start Time = ${startTime}.", "DEBUG")
+            log("End Time = ${endTime}.", "DEBUG")
+        }
+    }
+    
+    if(useTheSun == true && useTimeRange == true) {
+    	log("Both 'Use the Sun' & 'Use Time Range' enabled, defaulting to 'Use the Sun', check your settings!", "ERROR")
+        useTimeRange = false
+    }
     
     if(active) {
     	subscribe(motionSensors, "motion.active", motionHandler)
@@ -252,12 +275,21 @@ def triggerLights() {
     
     def currentDate = new Date()
     
-    if(useTheSun == true) {
+    if(useTheSun) {
     	if(isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset))) && isAfter(currentDate, getSunset(getOffsetString(sunsetOffset)))) {
         	log("The sun is up, ignoring triggers.", "DEBUG")
             return
         } else {
         	log("The sun is down!", "DEBUG")
+        }
+    }
+    
+    if(useTimeRange) {
+    	if(isBefore(currentDate, startTime) && isAfter(currentDate, endTime)) {
+        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
+            return
+        } else {
+        	log("Time is within time range!", "DEBUG")
         }
     }
 
