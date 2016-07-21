@@ -1,7 +1,8 @@
 /**
  *  Trigger My Lights
- *  Version 1.0.0 - 07/11/16
  *
+ *  1.0.2 - 07/20/16
+ *   -- Bug Fix: Resolved issue with Sunset Sunrise settings.
  *  1.0.1 - 07/18/16
  *   -- Feature: Ability to only execute between sunset and sunrise.
  *   -- Behavior Change: If motion lights will not turn off while there is still motion in the room / area with selected 
@@ -169,8 +170,8 @@ def initalization() {
         if(sunsetOffset == null) { sunsetOffset = 0 }
    	}
     
-    log("sunsetOffset = ${sunsetOffset}.", "INFO")
-    log("sunriseOffset = ${sunriseOffset}.", "INFO")
+    log("sunsetOffset = ${sunsetOffset} ---> ${getOffsetString(sunsetOffset)}.", "INFO")
+    log("sunriseOffset = ${sunriseOffset} ---> ${getOffsetString(sunriseOffset)}.", "INFO")
     log("Sunrise with Offset of ${sunriseOffset} = ${getSunrise(getOffsetString(sunriseOffset))}.", "INFO")
     log("Sunset with Offset of ${sunsetOffset} = ${getSunset(getOffsetString(sunsetOffset))}.", "INFO")
     
@@ -274,18 +275,27 @@ def triggerLights() {
     log("isRoomActive = ${isRoomActive}.", "DEBUG")
     
     def currentDate = new Date()
+    log("currentDate = ${currentDate}.", "DEBUG")
+    log("sunrise = ${getSunrise(getOffsetString(sunriseOffset))}.", "DEBUG")
+    log("sunset = ${getSunset(getOffsetString(sunsetOffset))}.", "DEBUG")
+    
+    def sunrise = getSunrise(getOffsetString(sunriseOffset))
+    def sunset = getSunset(getOffsetString(sunsetOffset))
+    
+    log("isAfter = ${isAfter(currentDate, sunset)}.", "DEBUG")
+    log("isBefore = ${isBefore(currentDate, sunrise)}.", "DEBUG")
     
     if(useTheSun) {
-    	if(isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset))) && isAfter(currentDate, getSunset(getOffsetString(sunsetOffset)))) {
-        	log("The sun is up, ignoring triggers.", "DEBUG")
-            return
+        if(isAfter(currentDate, getSunset(getOffsetString(sunsetOffset))) || isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset)))) {
+        	log("The sun is down! OK!", "DEBUG")
         } else {
-        	log("The sun is down!", "DEBUG")
+        	log("Does not meet useTheSun criteria!", "DEBUG")
+            return
         }
     }
     
     if(useTimeRange) {
-    	if(isBefore(currentDate, startTime) && isAfter(currentDate, endTime)) {
+    	if(isBefore(currentDate, inputDateToDate(startTime)) && isAfter(currentDate, inputDateToDate(endTime))) {
         	log("Time is outside of time range, ignoring triggers.", "DEBUG")
             return
         } else {
@@ -299,6 +309,13 @@ def triggerLights() {
         //setColorLights(selectedColorLightsLevel, selectedColorLightsColor)
         setColorTemperatureLights(selectedColorTemperatureLightsLevel, selectedColorTemperatureLightsTemperature)
 		setRoomActive(true)
+        
+        if(useTimer) {
+        	setSchedule()
+        } else {
+        	runIn(60, reset)
+        }
+        
         log("Lights triggered.", "INFO")
         
     } else {
@@ -495,11 +512,21 @@ def getOffsetString(offsetMinutes) {
 	int minutes = Math.abs(offsetMinutes) % 60;
     def sign = (offsetMinutes >= 0) ? "" : "-"
 	def offsetString = "${sign}${hours.toString().padLeft(2, "0")}:${minutes.toString().padLeft(2, "0")}"
-	return offSetString
+	return offsetString
 }
 
 def inputDateToDate(val) {
 	return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
+}
+
+def beforeSunrise() {
+	def currentDate = new Date()
+    
+    if(isBefore(currentDate, getSunrise())) {
+    	return true
+    } else {
+    	return false
+    }
 }
 
 /////// End Time / Date Methods ///////////////////////////////////////////////////////////
