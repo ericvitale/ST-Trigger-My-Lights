@@ -77,6 +77,7 @@ def mainPage() {
             input "contacts", "capability.contactSensor", title: "Contact Sensors", multiple: true, required: false
             input "tSwitches", "capability.switch", title: "Switches", multiple: true, required: false
             input "tSwitchesEvents", "enum", title: "Switch Trigger", required: false, multiple: false, options: ["On", "Off"]
+            input "tSwitchesUnschedule", "bool", title: "Unschedule for Opposite Trigger?", required: false, defaultValue: true
 		}
         
         section("Modes / Routines") {
@@ -228,8 +229,10 @@ def switchHandler(evt) {
 	if(evt.value in tSwitchesEvents) {
     	triggerLights()
     } else {
-    	log("Opposite trigger, unscheduling due to switch change.", "INFO")
-    	unschedule()
+    	if(tSwitchesUnschedule) {
+            log("Opposite trigger, unscheduling due to switch change.", "INFO")
+    		unschedule()
+        }
     }
     log("End switchHandler(evt).", "DEBUG")
 }
