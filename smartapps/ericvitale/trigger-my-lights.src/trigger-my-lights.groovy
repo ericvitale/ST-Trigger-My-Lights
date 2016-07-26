@@ -1,6 +1,8 @@
 /**
  *  Trigger My Lights
  *
+ *  1.0.3 - 07/26/16
+ *   -- Feature: Added the ability to use a switch or set switches as a trigger.
  *  1.0.2 - 07/20/16
  *   -- Bug Fix: Resolved issue with Sunset Sunrise settings.
  *  1.0.1 - 07/18/16
@@ -69,10 +71,12 @@ def mainPage() {
         	input "timer", "number", title: "Minutes", required: false, defaultValue: 10
         }
    	
-    	section("Sensors") {
+    	section("Triggers") {
 	        input "motionSensors", "capability.motionSensor", title: "Motion Sensors", multiple: true, required: false
             input "accSensors", "capability.accelerationSensor", title: "Acceleration Sensors", multiple: true, required: false
             input "contacts", "capability.contactSensor", title: "Contact Sensors", multiple: true, required: false
+            input "tSwitches", "capability.switch", title: "Switches", multiple: true, required: false
+            input "tSwitchesEvents", "enum", title: "Switch Trigger", required: false, multiple: false, options: ["On", "Off"]
 		}
         
         section("Modes / Routines") {
@@ -103,42 +107,51 @@ def mainPage() {
 	}
 }
 
-def determineLogLevel(data) {
-	if(data.toUpperCase() == "TRACE") {
-    	return 0
-    } else if(data.toUpperCase() == "DEBUG") {
-    	return 1
-    } else if(data.toUpperCase() == "INFO") {
-    	return 2
-    } else if(data.toUpperCase() == "WARN") {
-    	return 3
-    } else {
-    	return 4
+private determineLogLevel(data) {
+    switch (data?.toUpperCase()) {
+        case "TRACE":
+            return 0
+            break
+        case "DEBUG":
+            return 1
+            break
+        case "INFO":
+            return 2
+            break
+        case "WARN":
+            return 3
+            break
+        case "ERROR":
+        	return 4
+            break
+        default:
+            return 1
     }
 }
 
 def log(data, type) {
-    
-    data = "TML -- " + data
-    
-    try {
-        if(determineLogLevel(type) >= determineLogLevel(logging)) {
-            if(type.toUpperCase() == "TRACE") {
+    data = "TML -- ${data ?: ''}"
+        
+    if (determineLogLevel(type) >= determineLogLevel(settings?.logging ?: "INFO")) {
+        switch (type?.toUpperCase()) {
+            case "TRACE":
                 log.trace "${data}"
-            } else if(type.toUpperCase() == "DEBUG") {
+                break
+            case "DEBUG":
                 log.debug "${data}"
-            } else if(type.toUpperCase() == "INFO") {
+                break
+            case "INFO":
                 log.info "${data}"
-            } else if(type.toUpperCase() == "WARN") {
+                break
+            case "WARN":
                 log.warn "${data}"
-            } else if(type.toUpperCase() == "ERROR") {
+                break
+            case "ERROR":
                 log.error "${data}"
-            } else {
-                log.error "TML -- Invalid Log Setting"
-            }
+                break
+            default:
+                log.error "TML -- ${device.label} -- Invalid Log Setting"
         }
-    } catch(e) {
-    	log.error ${e}
     }
 }
 
@@ -198,6 +211,8 @@ def initalization() {
         subscribe(contacts, "contact.open", contactHandler)
         subscribe(location, modeHandler)
         subscribe(location, "routineExecuted", routineHandler)
+        subscribe(tSwitches, "switch", switchHandler)
+        
         log("Subscriptions to devices made.", "INFO")   
     } else {
     	log("App is set to inactive in settings.", "INFO")
@@ -206,6 +221,17 @@ def initalization() {
     setRoomActive(false)
 
     log("End initialization().", "DEBUG")
+}
+
+def switchHandler(evt) {
+	log("Begin switchHandler(evt).", "DEBUG")
+	if(evt.value in tSwitchesEvents) {
+    	triggerLights()
+    } else {
+    	log("Opposite trigger, unscheduling due to switch change.", "INFO")
+    	unschedule()
+    }
+    log("End switchHandler(evt).", "DEBUG")
 }
 
 def motionHandler(evt) {
@@ -329,7 +355,9 @@ def setSwitches() {
 	log("Begin setSwitches().", "DEBUG")
     
     switches.each { it->
-    	it.on()
+    	//if(it.currentValue("switch").toLowerCase() == "off") {
+    		it.on()
+        //}
     }
     
     log("End setSwitches().", "DEBUG")
@@ -338,7 +366,10 @@ def setSwitches() {
 def setDimmers(valueLevel) {
     
     dimmers.each { it->
-   		it.on()
+   		//if(it.currentValue("switch").toLowerCase() == "off") {
+    		//it.on()
+            it.setLevel(valueLevel)
+        //}
     }
     
     log("End setDimmers(onOff, value).", "DEBUG")
@@ -368,9 +399,13 @@ def setColorTemperatureLights(valueLevel, valueColorTemperature) {
 	log("Begin setColorTemperatureLights(, valueLevel, valueColorTemperature).", "DEBUG")
     
     colorTemperatureLights.each { it->
-    	it.setLevel(valueLevel)
-        it.setColorTemperature(valueColorTemperature)
-        it.on()
+    	//if(it.currentValue("switch").toLowerCase() == "off") {
+	        it.setLevel(valueLevel)
+    	    it.setColorTemperature(valueColorTemperature)
+            it.on()
+        //} else {
+        //	log("Ignoring ${it.label} as it is already on.", "INFO")
+        //}
     }
     
     log("End setColorTemperatureLights(onOff, valueLevel, valueColorTemperature).", "DEBUG")
