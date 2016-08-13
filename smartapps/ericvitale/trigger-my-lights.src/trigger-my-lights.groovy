@@ -78,22 +78,20 @@ def mainPage() {
         section("Modes / Routines") {
         	input "modes", "mode", title: "When Changes to Mode(s)", multiple: true, required: false
             input "routine", "text", title: "When Routine is Executed", multiple: false, required: false
-            //input "routines", "routine", title: "When Routine(s) is Executed", multiple: true, required: false
-            
         }
         
         section("Follow the Sun") {
-        	//input "modes", "mode", title: "Only in Modes", multiple: true, required: false
             input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: false
             input "sunriseOffset", "number", title: "Sunrise Offset", range: "-720..720", required: true, defaultValue: 0
            	input "sunsetOffset", "number", title: "Sunset Offset", range: "-720..720", required: true, defaultValue: 0            
         }
         
-        section("Time Range") {
+        /*section("Time Range") {
             input "useTimeRange", "bool", title: "Use Custom Time Range?", required: true, defaultValue: false
             input "startTime", "time", title: "Start Time", required: false
             input "endTime", "time", title: "End Time", required: false
-        }
+            input "endTimeTomorrow", "bool", title: "Is the End Time Tomorrow?", required: false, defaultValue: false
+        }*/
     
 	    section([mobileOnly:true], "Options") {
 			label(title: "Assign a name", required: false)
@@ -103,42 +101,51 @@ def mainPage() {
 	}
 }
 
-def determineLogLevel(data) {
-	if(data.toUpperCase() == "TRACE") {
-    	return 0
-    } else if(data.toUpperCase() == "DEBUG") {
-    	return 1
-    } else if(data.toUpperCase() == "INFO") {
-    	return 2
-    } else if(data.toUpperCase() == "WARN") {
-    	return 3
-    } else {
-    	return 4
+private determineLogLevel(data) {
+    switch (data?.toUpperCase()) {
+        case "TRACE":
+            return 0
+            break
+        case "DEBUG":
+            return 1
+            break
+        case "INFO":
+            return 2
+            break
+        case "WARN":
+            return 3
+            break
+        case "ERROR":
+        	return 4
+            break
+        default:
+            return 1
     }
 }
 
 def log(data, type) {
-    
-    data = "TML -- " + data
-    
-    try {
-        if(determineLogLevel(type) >= determineLogLevel(logging)) {
-            if(type.toUpperCase() == "TRACE") {
+    data = "TML -- ${data ?: ''}"
+        
+    if (determineLogLevel(type) >= determineLogLevel(settings?.logging ?: "INFO")) {
+        switch (type?.toUpperCase()) {
+            case "TRACE":
                 log.trace "${data}"
-            } else if(type.toUpperCase() == "DEBUG") {
+                break
+            case "DEBUG":
                 log.debug "${data}"
-            } else if(type.toUpperCase() == "INFO") {
+                break
+            case "INFO":
                 log.info "${data}"
-            } else if(type.toUpperCase() == "WARN") {
+                break
+            case "WARN":
                 log.warn "${data}"
-            } else if(type.toUpperCase() == "ERROR") {
+                break
+            case "ERROR":
                 log.error "${data}"
-            } else {
+                break
+            default:
                 log.error "TML -- Invalid Log Setting"
-            }
         }
-    } catch(e) {
-    	log.error ${e}
     }
 }
 
@@ -168,6 +175,7 @@ def initalization() {
     if(useTheSun == true) {
     	if(sunriseOffset == null) { sunriseOffset = 0 }
         if(sunsetOffset == null) { sunsetOffset = 0 }
+        log("You are using sunrise and sunset without setting an offset, defaulting to 0 for both.", "WARN")
    	}
     
     log("sunsetOffset = ${sunsetOffset} ---> ${getOffsetString(sunsetOffset)}.", "INFO")
@@ -175,22 +183,22 @@ def initalization() {
     log("Sunrise with Offset of ${sunriseOffset} = ${getSunrise(getOffsetString(sunriseOffset))}.", "INFO")
     log("Sunset with Offset of ${sunsetOffset} = ${getSunset(getOffsetString(sunsetOffset))}.", "INFO")
     
-    log("Use Time Range = ${useTimeRange}.", "DEBUG")
+    /*log("Use Time Range = ${useTimeRange}.", "INFO")
     
     if(useTimeRange == true) {
 	    if(startTime == null || endTime == null) {
     		useTimeRange = false
             log("Invalid start/end time, turning time range control off.", "ERROR")
     	} else {
-        	log("Start Time = ${startTime}.", "DEBUG")
-            log("End Time = ${endTime}.", "DEBUG")
+        	log("Raw Start Time = ${startTime}.", "DEBUG")
+            log("Raw End Time = ${endTime}.", "DEBUG")
         }
     }
     
     if(useTheSun == true && useTimeRange == true) {
-    	log("Both 'Use the Sun' & 'Use Time Range' enabled, defaulting to 'Use the Sun', check your settings!", "ERROR")
+    	log("Both 'Use the Sun' & 'Use Time Range' enabled, defaulting to 'Use the Sun', check your settings!", "WARN")
         useTimeRange = false
-    }
+    }*/
     
     if(active) {
     	subscribe(motionSensors, "motion.active", motionHandler)
@@ -282,9 +290,6 @@ def triggerLights() {
     def sunrise = getSunrise(getOffsetString(sunriseOffset))
     def sunset = getSunset(getOffsetString(sunsetOffset))
     
-    log("isAfter = ${isAfter(currentDate, sunset)}.", "DEBUG")
-    log("isBefore = ${isBefore(currentDate, sunrise)}.", "DEBUG")
-    
     if(useTheSun) {
         if(isAfter(currentDate, getSunset(getOffsetString(sunsetOffset))) || isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset)))) {
         	log("The sun is down! OK!", "DEBUG")
@@ -294,14 +299,58 @@ def triggerLights() {
         }
     }
     
+    /*log("Time is After Result: ${isAfter(currentDate, inputDateToTodayDate(endTime) + dateAddValue)}.", "DEBUG")
+    log("Time is Before Result: ${isBefore(currentDate, inputDateToTodayDate(startTime))}.", "DEBUG")
+    
     if(useTimeRange) {
-    	if(isBefore(currentDate, inputDateToDate(startTime)) && isAfter(currentDate, inputDateToDate(endTime))) {
+    	def dateAddValue = 0
+    	
+        /*
+        
+        */
+        /*if(isBefore(inputDateToTodayDate(endTime), inputDateToTodayDate(startTime)) && isAfter(inputDateToTodayDate(startTime), currentDate)) {
+            dateAddValue = 1
+        }
+        
+        log("dateAddValue = ${dateAddValue}.", "DEBUG")
+        
+        if(isAfter(currentDate, inputDateToTodayDate(startTime)) && isBefore(currentDate, inputDateToTodayDate(endTime) + dateAddValue)) {
+        	log("Within selected time range.", "DEBUG")
+        } else {
+        	log("Outside of selected time range, ignoring.", "DEBUG")
+            return
+        }*/
+
+        /****if(endTimeTomorrow) {
+    		dateAddValue = 1
+        	log("Adding a day to the end time as it is should be a time for tomorrow.", "DEBUG")
+    	}*/
+        
+    	/*****if(isBefore(currentDate, inputDateToTodayDate(startTime)) || isAfter(currentDate, inputDateToTodayDate(endTime) + dateAddValue)) {
+        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
+            return
+        } else {
+        	log("Time is within time range!", "DEBUG")
+        }*/
+    /*}*/
+    
+    /*if(useTimeRange) {
+    	if(isBefore(currentDate, inputDateToDate(startTime)) && isAfter(currentDate, inputDateToDate(endTime) + dateAddValue)) {
         	log("Time is outside of time range, ignoring triggers.", "DEBUG")
             return
         } else {
         	log("Time is within time range!", "DEBUG")
         }
-    }
+    }*/
+    
+    /*if(useTimeRange) {
+    	if(isBefore(currentDate, state.sTime) && isAfter(currentDate, state.eTime)) {
+        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
+            return
+        } else {
+        	log("Time is within time range!", "DEBUG")
+        }
+    }*/
 
     if(!isRoomActive()) {
     	setSwitches()
@@ -338,7 +387,8 @@ def setSwitches() {
 def setDimmers(valueLevel) {
     
     dimmers.each { it->
-   		it.on()
+   		it.setLevel(valueLevel)
+        //it.on()
     }
     
     log("End setDimmers(onOff, value).", "DEBUG")
@@ -353,7 +403,7 @@ def setColorLights(valueLevel, valueColor) {
     log("Saturation = ${colorMap['saturation']}.", "DEBUG")
     
     colorLights.each { it->
-        it.on()
+        //it.on()
         //it.setColor(colorMap)
     	it.setHue(colorMap['hue'])
         it.setSaturation(colorMap['saturation'])
@@ -370,7 +420,7 @@ def setColorTemperatureLights(valueLevel, valueColorTemperature) {
     colorTemperatureLights.each { it->
     	it.setLevel(valueLevel)
         it.setColorTemperature(valueColorTemperature)
-        it.on()
+        //it.on()
     }
     
     log("End setColorTemperatureLights(onOff, valueLevel, valueColorTemperature).", "DEBUG")
@@ -472,7 +522,9 @@ def getColorMap(val) {
 /////// Begin Time / Date Methods ///////////////////////////////////////////////////////////
 
 def minutesBetween(time1, time2) {
-	return (time1.getTime() - time2.getTime())/1000/60
+	//log("time1 = ${time1}.", "DEBUG")
+    //log("time2 = ${time2}.", "DEBUG")
+	return (time1.getTime() - time2.getTime()) / 1000 / 60
 }
 
 def isBefore(time1, time2) {
@@ -517,6 +569,37 @@ def getOffsetString(offsetMinutes) {
 
 def inputDateToDate(val) {
 	return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
+}
+
+def inputDateToTodayDate(val) {
+	def newDate = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
+    log("newDate = ${newDate}.", "DEBUG")
+    def currentDate = new Date()
+    log("currentDate = ${currentDate}.", "DEBUG")
+    
+    log("${currentDate[Calendar.YEAR]}", "DEBUG")
+    log("${currentDate[Calendar.MONTH]}", "DEBUG")
+    log("${currentDate[Calendar.DATE]}", "DEBUG")
+    
+    
+    
+    //newDate.set(currentDate[Calendar.YEAR], currentDate[Calendar.MONTH], currentDate[Calendar.DATE])
+    //log("UPDATED - newDate = ${newDate}.", "DEBUG")
+    newDate.set(YEAR: currentDate[Calendar.YEAR])
+    log("Year - newDate = ${newDate}.", "DEBUG")
+    newDate.set(MONTH: currentDate[Calendar.MONTH])
+    log("Month - newDate = ${newDate}.", "DEBUG")
+    newDate.set(DATE: currentDate[Calendar.DATE])
+    log("Day - newDate = ${newDate}.", "DEBUG")
+    log("Day - newDate = ${newDate}.", "DEBUG")
+    log("Day - newDate = ${newDate}.", "DEBUG")
+    log("Day - newDate = ${newDate}.", "DEBUG")
+    //newDate.set(HOUR_OF_DAY: currentDate[Calendar.HOUR_OF_DAY])
+    //log("Hour - newDate = ${newDate}.", "DEBUG")
+    //newDate.set(MINUTE: currentDate[Calendar.MINUTE])
+    //log("Minute - newDate = ${newDate}.", "DEBUG")
+    
+    return newDate
 }
 
 def beforeSunrise() {
