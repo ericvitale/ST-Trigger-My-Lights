@@ -1,6 +1,9 @@
 /**
  *  Trigger My Lights v2
  *
+ *  2.0.1 - 08/20/16
+ *   -- Resolved issue where lights would turn off after the timer if the motion sensor never went inactive.
+ *   -- Updated icon.
  *  2.0.0 - 08/12/16
  *   -- Parent child app.
  *   -- Dimmable lights do not adjust if they are already on.
@@ -35,9 +38,9 @@ definition(
     author: "Eric Vitale",
     description: "Set on/off, level, color, and color temperature of a set of lights based on motion, acceleration, and a contact sensor.",
     category: "",
-    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
-    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
-    iconX3Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png")
+    iconUrl: "https://s3.amazonaws.com/ev-public/st-images/trigger-my-lights-1x.png",
+    iconX2Url: "https://s3.amazonaws.com/ev-public/st-images/trigger-my-lights-2x.png",
+    iconX3Url: "https://s3.amazonaws.com/ev-public/st-images/trigger-my-lights-3x.png")
 
 
 preferences {
@@ -76,7 +79,7 @@ def childStartPage() {
         
         /*section("Color Lights") {
         	input "colorLights", "capability.colorControl", title: "Color Lights", multiple: true, required: false
-            input "selectedColorLightsColor", "enum", title: "Select Color", required: false, options: ["Blue", "Green", "Red", "Yello", "Orange", "Pink", "Purple", "Random"]
+            input "selectedColorLightsColor", "enum", title: "Select Color", required: false, options: ["Blue", "Green", "Red", "Yellow", "Orange", "Pink", "Purple", "Random"]
             input "selectedColorLightsLevel", "number", title: "Level", required: false, defaultValue: 100
         }*/
         
@@ -118,7 +121,7 @@ def childStartPage() {
 	    section([mobileOnly:true], "Options") {
 			label(title: "Assign a name", required: false)
             input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
-            input "logging", "enum", title: "Log Level", required: true, defaultValue: "DEBUG", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+            input "logging", "enum", title: "Log Level", required: true, defaultValue: "INFO", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
     	}
 	}
 }
@@ -189,7 +192,7 @@ def updated() {
 }
 
 def initialization() {
-	log.debug "Begin initialization()."
+	log("Begin initialization().", "DEBUG")
     
     if(parent) { 
     	initChild() 
@@ -197,7 +200,7 @@ def initialization() {
     	initParent() 
     }
     
-    log.debug "End initialization()."
+    log("End initialization().", "DEBUG")
 }
 
 def initParent() {
@@ -207,15 +210,23 @@ def initParent() {
 def initChild() {
 	log("Begin intialization().", "DEBUG")
     
+    unsubscribe()
+    unschedule()
+    
     log("useTimer = ${useTimer}.", "INFO")
     log("active = ${active}.", "INFO")
     log("timer = ${timer}.", "INFO")
     log("useTheSun = ${useTheSun}.", "INFO")
     
     if(useTheSun == true) {
-    	if(sunriseOffset == null) { sunriseOffset = 0 }
-        if(sunsetOffset == null) { sunsetOffset = 0 }
-        log("You are using sunrise and sunset without setting an offset, defaulting to 0 for both.", "WARN")
+    	if(sunriseOffset == null) { 
+        	sunriseOffset = 0 
+            log("You are using sunrise without setting an offset, defaulting to 0.", "WARN")
+        }
+        if(sunsetOffset == null) { 
+        	sunsetOffset = 0
+            log("You are using sunset without setting an offset, defaulting to 0.", "WARN")
+        }
    	}
     
     log("sunsetOffset = ${sunsetOffset} ---> ${getOffsetString(sunsetOffset)}.", "INFO")
@@ -240,13 +251,74 @@ def initChild() {
         useTimeRange = false
     }*/
     
+    if(motionSensors == null) {
+    	state.motion = false
+    } else {
+    	state.motion = true
+        motionSensors.each { it->
+    		log("Selected motion sensors type = ${it.name} and label = ${it.label}.", "INFO")
+    	}
+    }
+    
+    if(contacts == null) {
+    	state.contact = false
+    } else {
+	    state.contact = true
+		contacts.each { it->
+    		log("Selected contact sensor type = ${it.name} and label = ${it.label}.", "INFO")
+    	}
+    }
+    
+    if(accSensors == null) {
+    	state.acceleration = false
+    } else {
+	    state.acceleration = true
+		accSensors.each { it->
+    		log("Selected acceleration sensor type = ${it.name} and label = ${it.label}.", "INFO")
+    	}
+    }
+    
+    if(modes == null) {
+    	state.modes = false
+    } else {
+	    state.modes = true
+		modes.each { it->
+    		log("Selected mode = ${it.name}.", "INFO")
+    	}
+    }
+    
+    if(routines == null) {
+    	state.routines = false
+    } else {
+	    state.routines = true
+		routines.each { it->
+    		log("Selected routines = ${it.name}.", "INFO")
+    	}
+    }
+    
     if(active) {
-    	subscribe(motionSensors, "motion.active", motionHandler)
-        subscribe(accSensors, "acceleration.active", accelerationHandler)
-        subscribe(contacts, "contact.open", contactHandler)
-        subscribe(location, modeHandler)
-        subscribe(location, "routineExecuted", routineHandler)
-        log("Subscriptions to devices made.", "INFO")   
+    	if(state.motion) {
+  	    	subscribe(motionSensors, "motion.active", motionHandler)
+            log("Subscribed to --motion.active--.", "INFO")
+        }
+        if(state.acceleration) {
+        	subscribe(accSensors, "acceleration.active", accelerationHandler)
+            log("Subscribed to --acceleration.active--.", "INFO")
+        }
+        if(state.contact) {
+        	subscribe(contacts, "contact.open", contactHandler)
+            log("Subscribed to --contact.open--.", "INFO")
+        }
+        if(state.mode) {
+        	subscribe(location, modeHandler)
+            log("Subscribed to --mode.change--.", "INFO")
+        }
+        if(state.routine) {
+        	subscribe(location, "routineExecuted", routineHandler)
+            log("Subscribed to --routine.executed--.", "INFO")
+        }
+        
+        log("Subscriptions to required devices made.", "INFO")   
     } else {
     	log("App is set to inactive in settings.", "INFO")
     }
@@ -259,7 +331,7 @@ def initChild() {
 def motionHandler(evt) {
 	log("Begin motionHandler(evt).", "DEBUG")
     
-    log("isRoomActive = ${isRoomActive()}.", "DEBUG")
+    //log("isRoomActive = ${isRoomActive()}.", "DEBUG")
     
     if(isRoomActive()) {
     	if(useTimer) {
@@ -338,59 +410,6 @@ def triggerLights() {
             return
         }
     }
-    
-    /*log("Time is After Result: ${isAfter(currentDate, inputDateToTodayDate(endTime) + dateAddValue)}.", "DEBUG")
-    log("Time is Before Result: ${isBefore(currentDate, inputDateToTodayDate(startTime))}.", "DEBUG")
-    
-    if(useTimeRange) {
-    	def dateAddValue = 0
-    	
-        /*
-        
-        */
-        /*if(isBefore(inputDateToTodayDate(endTime), inputDateToTodayDate(startTime)) && isAfter(inputDateToTodayDate(startTime), currentDate)) {
-            dateAddValue = 1
-        }
-        
-        log("dateAddValue = ${dateAddValue}.", "DEBUG")
-        
-        if(isAfter(currentDate, inputDateToTodayDate(startTime)) && isBefore(currentDate, inputDateToTodayDate(endTime) + dateAddValue)) {
-        	log("Within selected time range.", "DEBUG")
-        } else {
-        	log("Outside of selected time range, ignoring.", "DEBUG")
-            return
-        }*/
-
-        /****if(endTimeTomorrow) {
-    		dateAddValue = 1
-        	log("Adding a day to the end time as it is should be a time for tomorrow.", "DEBUG")
-    	}*/
-        
-    	/*****if(isBefore(currentDate, inputDateToTodayDate(startTime)) || isAfter(currentDate, inputDateToTodayDate(endTime) + dateAddValue)) {
-        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
-            return
-        } else {
-        	log("Time is within time range!", "DEBUG")
-        }*/
-    /*}*/
-    
-    /*if(useTimeRange) {
-    	if(isBefore(currentDate, inputDateToDate(startTime)) && isAfter(currentDate, inputDateToDate(endTime) + dateAddValue)) {
-        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
-            return
-        } else {
-        	log("Time is within time range!", "DEBUG")
-        }
-    }*/
-    
-    /*if(useTimeRange) {
-    	if(isBefore(currentDate, state.sTime) && isAfter(currentDate, state.eTime)) {
-        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
-            return
-        } else {
-        	log("Time is within time range!", "DEBUG")
-        }
-    }*/
 
     if(!isRoomActive()) {
     	setSwitches()
@@ -474,8 +493,20 @@ def setColorTemperatureLights(valueLevel, valueColorTemperature) {
 
 def setAllLightsOff() {
 	log("Begin setAllLightsOff().", "DEBUG")
-    	setAllLights("off")
-        log("Turned lights off per the schedule.", "INFO")
+    	if(state.motion) {
+        	motionSensors.each { it->
+            	if(it.currentValue("motion") == "active") {
+                	unschedule()
+                	setSchedule()
+                    log("Motion still detected, rescheduling check.", "INFO")
+                    return
+                }
+            }
+        }
+        
+   	setAllLights("off")
+    log("Turned lights off per the schedule.", "INFO")
+    
     log("End setAllLightsOff().", "DEBUG")
 }
 
@@ -502,10 +533,31 @@ def setAllLights(onOff) {
 def setSchedule() {
 	log("Begin setSchedule().", "DEBUG")
     if(useTimer) {
-    	runIn(timer*60, setAllLightsOff)
+    	//runIn(timer*60, setAllLightsOff)
+        runIn(timer*60, scheduleElapseTrigger)
         log("Setting timer to turn off lights in ${timer} minutes.", "INFO")
     }
     log("End setSchedule().", "DEBUG")
+}
+
+def scheduleElapseTrigger(){
+	//See if any of the motion sensors still have motion, if they do, don't turn off.
+    if(motionSensors != null) {
+    	def isMotion = false
+        motionSensors.each { it->
+        	if(it.currentValue("motion") == "active") {
+            	isMotion = true
+            }
+        }
+        
+        if(isMotion) {
+        	runIn(timer*60, scheduleElapseTrigger)
+            log("Motion sensor is still active. Resetting timer.", "INFO")
+        } else {
+        	log("Last check for motion detected no motion, turning off.", "INFO")
+            setAllLightsOff()
+        }
+    }
 }
 
 def reschedule() {
