@@ -1,6 +1,8 @@
 /**
  *  Trigger My Lights v2
  *
+ *  2.0.2 - 08/22/16
+ *   -- Ability to schedule triggers to be enabled / disabled based on a time range.
  *  2.0.1 - 08/20/16
  *   -- Resolved issue where lights would turn off after the timer if the motion sensor never went inactive.
  *   -- Updated icon.
@@ -105,18 +107,23 @@ def childStartPage() {
             input "routine", "text", title: "When Routine is Executed", multiple: false, required: false
         }
         
-        section("Follow the Sun") {
-            input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: false
-            input "sunriseOffset", "number", title: "Sunrise Offset", range: "-720..720", required: true, defaultValue: 0
-           	input "sunsetOffset", "number", title: "Sunset Offset", range: "-720..720", required: true, defaultValue: 0            
+        section("Time Range") {
+            input "useTimeRange", "bool", title: "Use Time Range?", required: true, defaultValue: false, submitOnChange: true
+        	if(useTimeRange) {
+                input "startTimeSetting", "enum", title: "Start Time", required: true, defaultValue: "None", options: ["None", "Sunrise", "Sunset", "Custom"], submitOnChange: true
+                if(startTimeSetting == "Custom") {
+                    input "startTimeInput", "time", title: "Custom Start Time", required: true
+                } else if(startTimeSetting == "Sunrise" || startTimeSetting == "Sunset") {
+                    input "startTimeOffset", "number", title: "Offset ${startTimeType} by (Mins)...", range: "*..*"
+                }
+                input "endTimeSetting", "enum", title: "End Time", required: true, defaultValue: "None", options: ["None", "Sunrise", "Sunset", "Custom"], submitOnChange: true
+                if(endTimeSetting == "Custom") {
+                    input "endTimeInput", "time", title: "Custom End Time", required: true
+                } else if(endTimeSetting == "Sunrise" || endTimeSetting == "Sunset") {
+                    input "endTimeOffset", "number", title: "Offset ${endTimeType} by (Mins)...", range: "*..*"
+                }
+            }
         }
-        
-        /*section("Time Range") {
-            input "useTimeRange", "bool", title: "Use Custom Time Range?", required: true, defaultValue: false
-            input "startTime", "time", title: "Start Time", required: false
-            input "endTime", "time", title: "End Time", required: false
-            input "endTimeTomorrow", "bool", title: "Is the End Time Tomorrow?", required: false, defaultValue: false
-        }*/
     
 	    section([mobileOnly:true], "Options") {
 			label(title: "Assign a name", required: false)
@@ -216,40 +223,10 @@ def initChild() {
     log("useTimer = ${useTimer}.", "INFO")
     log("active = ${active}.", "INFO")
     log("timer = ${timer}.", "INFO")
-    log("useTheSun = ${useTheSun}.", "INFO")
     
-    if(useTheSun == true) {
-    	if(sunriseOffset == null) { 
-        	sunriseOffset = 0 
-            log("You are using sunrise without setting an offset, defaulting to 0.", "WARN")
-        }
-        if(sunsetOffset == null) { 
-        	sunsetOffset = 0
-            log("You are using sunset without setting an offset, defaulting to 0.", "WARN")
-        }
-   	}
-    
-    log("sunsetOffset = ${sunsetOffset} ---> ${getOffsetString(sunsetOffset)}.", "INFO")
-    log("sunriseOffset = ${sunriseOffset} ---> ${getOffsetString(sunriseOffset)}.", "INFO")
-    log("Sunrise with Offset of ${sunriseOffset} = ${getSunrise(getOffsetString(sunriseOffset))}.", "INFO")
-    log("Sunset with Offset of ${sunsetOffset} = ${getSunset(getOffsetString(sunsetOffset))}.", "INFO")
-    
-    /*log("Use Time Range = ${useTimeRange}.", "INFO")
-    
-    if(useTimeRange == true) {
-	    if(startTime == null || endTime == null) {
-    		useTimeRange = false
-            log("Invalid start/end time, turning time range control off.", "ERROR")
-    	} else {
-        	log("Raw Start Time = ${startTime}.", "DEBUG")
-            log("Raw End Time = ${endTime}.", "DEBUG")
-        }
+    if(useTimeRange) {
+    	setupTimes()
     }
-    
-    if(useTheSun == true && useTimeRange == true) {
-    	log("Both 'Use the Sun' & 'Use Time Range' enabled, defaulting to 'Use the Sun', check your settings!", "WARN")
-        useTimeRange = false
-    }*/
     
     if(motionSensors == null) {
     	state.motion = false
@@ -331,8 +308,6 @@ def initChild() {
 def motionHandler(evt) {
 	log("Begin motionHandler(evt).", "DEBUG")
     
-    //log("isRoomActive = ${isRoomActive()}.", "DEBUG")
-    
     if(isRoomActive()) {
     	if(useTimer) {
 			log("Room is still active, reseting OFF time.", "DEBUG")
@@ -394,21 +369,9 @@ def triggerLights() {
     
     log("isRoomActive = ${isRoomActive}.", "DEBUG")
     
-    def currentDate = new Date()
-    log("currentDate = ${currentDate}.", "DEBUG")
-    log("sunrise = ${getSunrise(getOffsetString(sunriseOffset))}.", "DEBUG")
-    log("sunset = ${getSunset(getOffsetString(sunsetOffset))}.", "DEBUG")
-    
-    def sunrise = getSunrise(getOffsetString(sunriseOffset))
-    def sunset = getSunset(getOffsetString(sunsetOffset))
-    
-    if(useTheSun) {
-        if(isAfter(currentDate, getSunset(getOffsetString(sunsetOffset))) || isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset)))) {
-        	log("The sun is down! OK!", "DEBUG")
-        } else {
-        	log("Does not meet useTheSun criteria!", "DEBUG")
-            return
-        }
+    if(outOfRange()) {
+    	log("Current time is out of range, ignoring.", "INFO")
+        return
     }
 
     if(!isRoomActive()) {
@@ -533,7 +496,6 @@ def setAllLights(onOff) {
 def setSchedule() {
 	log("Begin setSchedule().", "DEBUG")
     if(useTimer) {
-    	//runIn(timer*60, setAllLightsOff)
         runIn(timer*60, scheduleElapseTrigger)
         log("Setting timer to turn off lights in ${timer} minutes.", "INFO")
     }
@@ -557,6 +519,8 @@ def scheduleElapseTrigger(){
         	log("Last check for motion detected no motion, turning off.", "INFO")
             setAllLightsOff()
         }
+    } else {
+    	setAllLightsOff()
     }
 }
 
@@ -617,12 +581,159 @@ def getColorMap(val) {
 	return colorMap
 }
 
+//// Begin Time Getters / Setters ////
+def getStartTime() {
+	return state.theStartTime
+}
+
+def setStartTime(val) {
+	state.theStartTime = val
+}
+
+def getEndTime() {
+	return state.theEndTime
+}
+
+def setEndTime(val) {
+	state.theEndTime = val
+}
+
+def getStartTimeType() {
+    return state.theStartTimeSetting
+}
+
+def setStartTimeType(val) {
+    state.theStartTimeSetting = val
+}
+
+def getEndTimeType() {
+    return state.theEndTimeSetting
+}
+
+def setEndTimeType(val) {
+    state.theEndTimeSetting = val
+}
+
+def getStartTimeOffset() {
+	if(state.theStartTimeOffset == null) {
+    	return 0
+    } else {
+    	return state.theStartTimeOffset
+    }
+}
+
+def setStartTimeOffset(val) {
+	if(val == null) {
+    	state.theStartTimeOffset = 0
+    } else {
+    	state.theStartTimeOffset = val
+    }
+}
+
+def getEndTimeOffset() {
+	if(state.theEndTimeOffset == null) {
+    	return 0
+    } else {
+    	return state.theEndTimeOffset
+    }
+}
+
+def setEndTimeOffset(val) {
+	if(val == null) {
+    	state.theEndTimeOffset = 0
+    } else {
+    	state.theEndTimeOffset = val
+    }
+}
+
+def getUseStartTime() {
+	return state.UsingStartTime
+}
+
+def getUseEndTime() {
+	return state.UsingEndTime
+}
+
+def setUseStartTime(val) {
+	state.UsingStartTime = val
+}
+
+def setUseEndTime(val) {
+	state.UsingEndTime = val
+}	
+
+def getCalculatedStartTime() {
+	if(getStartTimeType() == "Custom") {
+    	return inputDateToDate(getStartTime())
+    } else if(getStartTimeType() == "Sunset") {
+    	return getSunset(getStartTimeOffset())
+    } else if(getStartTimeType() == "Sunrise") {
+    	return getSunrise(getStartTimeOffset())
+    }
+}
+
+def getCalculatedEndTime() {
+	if(getEndTimeType() == "Custom") {
+    	return inputDateToDate(getEndTime())
+    } else if(getEndTimeType() == "Sunset") {
+    	return getSunset(getEndTimeOffset())
+    } else if(getEndTimeType() == "Sunrise") {
+    	return getSunrise(getEndTimeOffset())
+    }	
+}
+
+//// End Time Getters / Setters ////
+
 /////// Begin Time / Date Methods ///////////////////////////////////////////////////////////
 
+def outOfRange() {
+    if(getUseStartTime() && getUseEndTime() && useTimeRange) {
+        if(isBetween(getCalculatedStartTime(), getCalculatedEndTime(), getNow())) {
+       		return false
+        } else {
+	        return true
+        }
+    }
+}
+
+
+def setupTimes() {
+	setStartTimeType(startTimeSetting)
+    setEndTimeType(endTimeSetting)
+    
+    if(getStartTimeType() == "None") {
+        setUseStartTime(false)
+    } else if (getStartTimeType() == "Sunrise") {
+    	setUseStartTime(true)
+        setStartTimeOffset(startTimeOffset)
+    } else if (getStartTimeType() == "Sunset") {
+    	setUseStartTime(true)
+        setStartTimeOffset(startTimeOffset)
+    } else if (getStartTimeType() == "Custom") {
+    	setUseStartTime(true)
+        setStartTime(startTimeInput)
+    }
+    
+    if(endTimeType == "None") {
+    	setUseEndTime(false)
+    } else if (endTimeType == "Sunrise") {
+    	setUseEndTime(true)
+        setEndTimeOffset(endTimeOffset)
+    } else if (endTimeType == "Sunset") {
+    	setUseEndTime(true)
+        setEndTimeOffset(endTimeOffset)
+    } else if (endTimeType == "Custom") {
+    	setUseEndTime(true)
+        setEndTime(endTimeInput)
+    }
+}
+
+def getNow() {
+	return new Date()
+}
+
 def minutesBetween(time1, time2) {
-	//log("time1 = ${time1}.", "DEBUG")
-    //log("time2 = ${time2}.", "DEBUG")
-	return (time1.getTime() - time2.getTime()) / 1000 / 60
+	return (time1.getTime() - time2.getTime())/1000/60
 }
 
 def isBefore(time1, time2) {
@@ -641,20 +752,34 @@ def isAfter(time1, time2) {
     }
 }
 
+def isBetween(time1, time2, time3) {
+	if(isAfter(time1, time2)) {
+        time2 = time2 + 1
+    }
+    
+    if(isAfter(time3, time1) && isBefore(time3, time2)) {
+    	return true
+    } else {
+    	return false
+    }
+}
+
 def getSunset() {
-	return getSunset("00:00")
+	return getSunset(0)
 }
 
 def getSunrise() {
-	return getSunrise("00:00")
+	return getSunrise(0)
 }
 
 def getSunset(offset) {
-	return getSunriseAndSunset(sunsetOffset: offset).sunset
+	def offsetString = getOffsetString(offset)
+	return getSunriseAndSunset(sunsetOffset: offsetString).sunset
 }
 
 def getSunrise(offset) {
-	return getSunriseAndSunset(sunriseOffset: offset).sunrise
+	def offsetString = getOffsetString(offset)
+	return getSunriseAndSunset(sunriseOffset: "${offsetString}").sunrise
 }
 
 def getOffsetString(offsetMinutes) {
@@ -669,45 +794,9 @@ def inputDateToDate(val) {
 	return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
 }
 
-def inputDateToTodayDate(val) {
-	def newDate = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
-    log("newDate = ${newDate}.", "DEBUG")
-    def currentDate = new Date()
-    log("currentDate = ${currentDate}.", "DEBUG")
-    
-    log("${currentDate[Calendar.YEAR]}", "DEBUG")
-    log("${currentDate[Calendar.MONTH]}", "DEBUG")
-    log("${currentDate[Calendar.DATE]}", "DEBUG")
-    
-    
-    
-    //newDate.set(currentDate[Calendar.YEAR], currentDate[Calendar.MONTH], currentDate[Calendar.DATE])
-    //log("UPDATED - newDate = ${newDate}.", "DEBUG")
-    newDate.set(YEAR: currentDate[Calendar.YEAR])
-    log("Year - newDate = ${newDate}.", "DEBUG")
-    newDate.set(MONTH: currentDate[Calendar.MONTH])
-    log("Month - newDate = ${newDate}.", "DEBUG")
-    newDate.set(DATE: currentDate[Calendar.DATE])
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    //newDate.set(HOUR_OF_DAY: currentDate[Calendar.HOUR_OF_DAY])
-    //log("Hour - newDate = ${newDate}.", "DEBUG")
-    //newDate.set(MINUTE: currentDate[Calendar.MINUTE])
-    //log("Minute - newDate = ${newDate}.", "DEBUG")
-    
-    return newDate
-}
-
-def beforeSunrise() {
-	def currentDate = new Date()
-    
-    if(isBefore(currentDate, getSunrise())) {
-    	return true
-    } else {
-    	return false
-    }
+def dateToString(val) {
+	log("val = ${val}.", "DEBUG")
+	return val.format("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
 }
 
 /////// End Time / Date Methods ///////////////////////////////////////////////////////////
