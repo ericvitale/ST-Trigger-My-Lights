@@ -1,6 +1,15 @@
 /**
  *  Trigger My Lights
  *
+ *  2.0.2 - 08/22/16
+ *   -- Ability to schedule triggers to be enabled / disabled based on a time range.
+ *   -- Cleaned up logic to make using sensors other than motion sensors more reliable on the second+ event.
+ *  2.0.1 - 08/20/16
+ *   -- Resolved issue where lights would turn off after the timer if the motion sensor never went inactive.
+ *   -- Updated icon.
+ *  2.0.0 - 08/12/16
+ *   -- Parent child app.
+ *   -- Dimmable lights do not adjust if they are already on.
  *  1.0.2 - 07/20/16
  *   -- Bug Fix: Resolved issue with Sunset Sunrise settings.
  *  1.0.1 - 07/18/16
@@ -27,46 +36,71 @@
  */
  
 definition(
-	name: "Trigger My Lights",
-	namespace: "ericvitale",
-	author: "ericvitale@gmail.com",
-	description: "Set on/off, level, color, and color temperature of a set of lights based on motion, acceleration, and a contact sensor.",
-	category: "My Apps",
-	iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
-	iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience%402x.png"
-)
+    name: "${appName()}",
+    namespace: "ericvitale",
+    author: "Eric Vitale",
+    description: "Set on/off, level, color, and color temperature of a set of lights based on motion, acceleration, and a contact sensor.",
+    category: "",
+    iconUrl: "https://s3.amazonaws.com/ev-public/st-images/trigger-my-lights-1x.png",
+    iconX2Url: "https://s3.amazonaws.com/ev-public/st-images/trigger-my-lights-2x.png",
+    iconX3Url: "https://s3.amazonaws.com/ev-public/st-images/trigger-my-lights-3x.png")
+
 
 preferences {
-	page name: "mainPage"
+    page(name: "startPage")
+    page(name: "parentPage")
+    page(name: "childStartPage")
 }
 
-def mainPage() {
-	dynamicPage(name: "mainPage", title: "", install: true, uninstall: true) {
+def startPage() {
+    if (parent) {
+        childStartPage()
+    } else {
+        parentPage()
+    }
+}
+
+def parentPage() {
+	return dynamicPage(name: "parentPage", title: "", nextPage: "", install: false, uninstall: true) {
+        section("Create a new child app.") {
+            app(name: "childApps", appName: appName(), namespace: "ericvitale", title: "New Lighting Automation", multiple: true)
+        }
+    }
+}
+
+def childStartPage() {
+	return dynamicPage(name: "childStartPage", title: "", install: true, uninstall: true) {
     
     	section("Switches") {
 			input "switches", "capability.switch", title: "Switches", multiple: true, required: false
     	}
         
         section("Dimmers") {
-        	input "dimmers", "capability.switchLevel", title: "Dimmers", multiple: true, required: false
-            input "selectedDimmersLevel", "number", title: "Dimmer Level", description: "Set your dimmers to...", required: false, defaultValue: 100
+        	input "dimmers", "capability.switchLevel", title: "Dimmers", multiple: true, required: false, submitOnChange: true
+            if(dimmers != null) {
+	            input "selectedDimmersLevel", "number", title: "Dimmer Level", description: "Set your dimmers to...", required: true, defaultValue: 100
+            }
         }
         
         /*section("Color Lights") {
         	input "colorLights", "capability.colorControl", title: "Color Lights", multiple: true, required: false
-            input "selectedColorLightsColor", "enum", title: "Select Color", required: false, options: ["Blue", "Green", "Red", "Yello", "Orange", "Pink", "Purple", "Random"]
+            input "selectedColorLightsColor", "enum", title: "Select Color", required: false, options: ["Blue", "Green", "Red", "Yellow", "Orange", "Pink", "Purple", "Random"]
             input "selectedColorLightsLevel", "number", title: "Level", required: false, defaultValue: 100
         }*/
         
         section("Color Temperature Lights") {
-        	input "colorTemperatureLights", "capability.colorTemperature", title: "Color Temperature Lights", multiple: true, required: false
-            input "selectedColorTemperatureLightsTemperature", "number", title: "Color Temperature", description: "2700 - 9000", range: "2700..9000", required: false
-            input "selectedColorTemperatureLightsLevel", "number", title: "Level", defaultValue: 100, required: false
+        	input "colorTemperatureLights", "capability.colorTemperature", title: "Color Temperature Lights", multiple: true, required: false, submitOnChange: true
+            if(colorTemperatureLights != null) {
+	            input "selectedColorTemperatureLightsTemperature", "number", title: "Color Temperature", description: "2500 - 9000", range: "2500..9000", required: true
+    	        input "selectedColorTemperatureLightsLevel", "number", title: "Level", defaultValue: 100, required: true
+            }
         }
         
         section("Schedule") {
-        	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: true
-        	input "timer", "number", title: "Minutes", required: false, defaultValue: 10
+        	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: true, submitOnChange: true
+        	if(timer == true) {
+	            input "timer", "number", title: "Minutes", required: false, defaultValue: 5
+            }
         }
    	
     	section("Sensors") {
@@ -80,26 +114,33 @@ def mainPage() {
             input "routine", "text", title: "When Routine is Executed", multiple: false, required: false
         }
         
-        section("Follow the Sun") {
-            input "useTheSun", "bool", title: "Follow sunset / sunrise?", required: true, defaultValue: false
-            input "sunriseOffset", "number", title: "Sunrise Offset", range: "-720..720", required: true, defaultValue: 0
-           	input "sunsetOffset", "number", title: "Sunset Offset", range: "-720..720", required: true, defaultValue: 0            
+        section("Time Range") {
+            input "useTimeRange", "bool", title: "Use Time Range?", required: true, defaultValue: false, submitOnChange: true
+        	if(useTimeRange) {
+                input "startTimeSetting", "enum", title: "Start Time", required: true, defaultValue: "None", options: ["None", "Sunrise", "Sunset", "Custom"], submitOnChange: true
+                if(startTimeSetting == "Custom") {
+                    input "startTimeInput", "time", title: "Custom Start Time", required: true
+                } else if(startTimeSetting == "Sunrise" || startTimeSetting == "Sunset") {
+                    input "startTimeOffset", "number", title: "Offset ${startTimeSetting} by (Mins)...", range: "*..*"
+                }
+                input "endTimeSetting", "enum", title: "End Time", required: true, defaultValue: "None", options: ["None", "Sunrise", "Sunset", "Custom"], submitOnChange: true
+                if(endTimeSetting == "Custom") {
+                    input "endTimeInput", "time", title: "Custom End Time", required: true
+                } else if(endTimeSetting == "Sunrise" || endTimeSetting == "Sunset") {
+                    input "endTimeOffset", "number", title: "Offset ${endTimeSetting} by (Mins)...", range: "*..*"
+                }
+            }
         }
-        
-        /*section("Time Range") {
-            input "useTimeRange", "bool", title: "Use Custom Time Range?", required: true, defaultValue: false
-            input "startTime", "time", title: "Start Time", required: false
-            input "endTime", "time", title: "End Time", required: false
-            input "endTimeTomorrow", "bool", title: "Is the End Time Tomorrow?", required: false, defaultValue: false
-        }*/
     
 	    section([mobileOnly:true], "Options") {
 			label(title: "Assign a name", required: false)
             input "active", "bool", title: "Rules Active?", required: true, defaultValue: true
-            input "logging", "enum", title: "Log Level", required: true, defaultValue: "DEBUG", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+            input "logging", "enum", title: "Log Level", required: true, defaultValue: "INFO", options: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
     	}
 	}
 }
+
+private def appName() { return "${parent ? "Light Automation" : "Trigger My Lights"}" }
 
 private determineLogLevel(data) {
     switch (data?.toUpperCase()) {
@@ -149,9 +190,9 @@ def log(data, type) {
     }
 }
 
-def installed() {   
+def installed() {
 	log("Begin installed.", "DEBUG")
-	initalization() 
+	initialization() 
     log("End installed.", "DEBUG")
 }
 
@@ -159,54 +200,109 @@ def updated() {
 	log("Begin updated().", "DEBUG")
 	unsubscribe()
     unschedule()
-	initalization()
+	initialization()
     setAllLights("off")
     log("End updated().", "DEBUG")
 }
 
-def initalization() {
+def initialization() {
+	log("Begin initialization().", "DEBUG")
+    
+    if(parent) { 
+    	initChild() 
+    } else {
+    	initParent() 
+    }
+    
+    log("End initialization().", "DEBUG")
+}
+
+def initParent() {
+	log.debug "initParent()"
+}
+
+def initChild() {
 	log("Begin intialization().", "DEBUG")
+    
+    unsubscribe()
+    unschedule()
     
     log("useTimer = ${useTimer}.", "INFO")
     log("active = ${active}.", "INFO")
     log("timer = ${timer}.", "INFO")
-    log("useTheSun = ${useTheSun}.", "INFO")
     
-    if(useTheSun == true) {
-    	if(sunriseOffset == null) { sunriseOffset = 0 }
-        if(sunsetOffset == null) { sunsetOffset = 0 }
-        log("You are using sunrise and sunset without setting an offset, defaulting to 0 for both.", "WARN")
-   	}
-    
-    log("sunsetOffset = ${sunsetOffset} ---> ${getOffsetString(sunsetOffset)}.", "INFO")
-    log("sunriseOffset = ${sunriseOffset} ---> ${getOffsetString(sunriseOffset)}.", "INFO")
-    log("Sunrise with Offset of ${sunriseOffset} = ${getSunrise(getOffsetString(sunriseOffset))}.", "INFO")
-    log("Sunset with Offset of ${sunsetOffset} = ${getSunset(getOffsetString(sunsetOffset))}.", "INFO")
-    
-    /*log("Use Time Range = ${useTimeRange}.", "INFO")
-    
-    if(useTimeRange == true) {
-	    if(startTime == null || endTime == null) {
-    		useTimeRange = false
-            log("Invalid start/end time, turning time range control off.", "ERROR")
-    	} else {
-        	log("Raw Start Time = ${startTime}.", "DEBUG")
-            log("Raw End Time = ${endTime}.", "DEBUG")
-        }
+    if(useTimeRange) {
+    	setupTimes()
     }
     
-    if(useTheSun == true && useTimeRange == true) {
-    	log("Both 'Use the Sun' & 'Use Time Range' enabled, defaulting to 'Use the Sun', check your settings!", "WARN")
-        useTimeRange = false
-    }*/
+    if(motionSensors == null) {
+    	state.motion = false
+    } else {
+    	state.motion = true
+        motionSensors.each { it->
+    		log("Selected motion sensors type = ${it.name} and label = ${it.label}.", "INFO")
+    	}
+    }
+    
+    if(contacts == null) {
+    	state.contact = false
+    } else {
+	    state.contact = true
+		contacts.each { it->
+    		log("Selected contact sensor type = ${it.name} and label = ${it.label}.", "INFO")
+    	}
+    }
+    
+    if(accSensors == null) {
+    	state.acceleration = false
+    } else {
+	    state.acceleration = true
+		accSensors.each { it->
+    		log("Selected acceleration sensor type = ${it.name} and label = ${it.label}.", "INFO")
+    	}
+    }
+    
+    if(modes == null) {
+    	state.modes = false
+    } else {
+	    state.modes = true
+		modes.each { it->
+    		log("Selected mode = ${it.name}.", "INFO")
+    	}
+    }
+    
+    if(routines == null) {
+    	state.routines = false
+    } else {
+	    state.routines = true
+		routines.each { it->
+    		log("Selected routines = ${it.name}.", "INFO")
+    	}
+    }
     
     if(active) {
-    	subscribe(motionSensors, "motion.active", motionHandler)
-        subscribe(accSensors, "acceleration.active", accelerationHandler)
-        subscribe(contacts, "contact.open", contactHandler)
-        subscribe(location, modeHandler)
-        subscribe(location, "routineExecuted", routineHandler)
-        log("Subscriptions to devices made.", "INFO")   
+    	if(state.motion) {
+  	    	subscribe(motionSensors, "motion.active", motionHandler)
+            log("Subscribed to --motion.active--.", "INFO")
+        }
+        if(state.acceleration) {
+        	subscribe(accSensors, "acceleration.active", accelerationHandler)
+            log("Subscribed to --acceleration.active--.", "INFO")
+        }
+        if(state.contact) {
+        	subscribe(contacts, "contact.open", contactHandler)
+            log("Subscribed to --contact.open--.", "INFO")
+        }
+        if(state.mode) {
+        	subscribe(location, modeHandler)
+            log("Subscribed to --mode.change--.", "INFO")
+        }
+        if(state.routine) {
+        	subscribe(location, "routineExecuted", routineHandler)
+            log("Subscribed to --routine.executed--.", "INFO")
+        }
+        
+        log("Subscriptions to required devices made.", "INFO")   
     } else {
     	log("App is set to inactive in settings.", "INFO")
     }
@@ -219,8 +315,6 @@ def initalization() {
 def motionHandler(evt) {
 	log("Begin motionHandler(evt).", "DEBUG")
     
-    log("isRoomActive = ${isRoomActive()}.", "DEBUG")
-    
     if(isRoomActive()) {
     	if(useTimer) {
 			log("Room is still active, reseting OFF time.", "DEBUG")
@@ -230,7 +324,8 @@ def motionHandler(evt) {
         	runIn(60, resetRoomStatus)
         }
     } else {
-    	triggerLights()
+    	state.wasMotion = true
+        triggerLights()
     }
     
     log("End motionHandler(evt).", "DEBUG")
@@ -282,82 +377,22 @@ def triggerLights() {
     
     log("isRoomActive = ${isRoomActive}.", "DEBUG")
     
-    def currentDate = new Date()
-    log("currentDate = ${currentDate}.", "DEBUG")
-    log("sunrise = ${getSunrise(getOffsetString(sunriseOffset))}.", "DEBUG")
-    log("sunset = ${getSunset(getOffsetString(sunsetOffset))}.", "DEBUG")
-    
-    def sunrise = getSunrise(getOffsetString(sunriseOffset))
-    def sunset = getSunset(getOffsetString(sunsetOffset))
-    
-    if(useTheSun) {
-        if(isAfter(currentDate, getSunset(getOffsetString(sunsetOffset))) || isBefore(currentDate, getSunrise(getOffsetString(sunriseOffset)))) {
-        	log("The sun is down! OK!", "DEBUG")
-        } else {
-        	log("Does not meet useTheSun criteria!", "DEBUG")
-            return
-        }
+    if(outOfRange()) {
+    	log("Current time is out of range, ignoring.", "INFO")
+        return
     }
-    
-    /*log("Time is After Result: ${isAfter(currentDate, inputDateToTodayDate(endTime) + dateAddValue)}.", "DEBUG")
-    log("Time is Before Result: ${isBefore(currentDate, inputDateToTodayDate(startTime))}.", "DEBUG")
-    
-    if(useTimeRange) {
-    	def dateAddValue = 0
-    	
-        /*
-        
-        */
-        /*if(isBefore(inputDateToTodayDate(endTime), inputDateToTodayDate(startTime)) && isAfter(inputDateToTodayDate(startTime), currentDate)) {
-            dateAddValue = 1
-        }
-        
-        log("dateAddValue = ${dateAddValue}.", "DEBUG")
-        
-        if(isAfter(currentDate, inputDateToTodayDate(startTime)) && isBefore(currentDate, inputDateToTodayDate(endTime) + dateAddValue)) {
-        	log("Within selected time range.", "DEBUG")
-        } else {
-        	log("Outside of selected time range, ignoring.", "DEBUG")
-            return
-        }*/
-
-        /****if(endTimeTomorrow) {
-    		dateAddValue = 1
-        	log("Adding a day to the end time as it is should be a time for tomorrow.", "DEBUG")
-    	}*/
-        
-    	/*****if(isBefore(currentDate, inputDateToTodayDate(startTime)) || isAfter(currentDate, inputDateToTodayDate(endTime) + dateAddValue)) {
-        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
-            return
-        } else {
-        	log("Time is within time range!", "DEBUG")
-        }*/
-    /*}*/
-    
-    /*if(useTimeRange) {
-    	if(isBefore(currentDate, inputDateToDate(startTime)) && isAfter(currentDate, inputDateToDate(endTime) + dateAddValue)) {
-        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
-            return
-        } else {
-        	log("Time is within time range!", "DEBUG")
-        }
-    }*/
-    
-    /*if(useTimeRange) {
-    	if(isBefore(currentDate, state.sTime) && isAfter(currentDate, state.eTime)) {
-        	log("Time is outside of time range, ignoring triggers.", "DEBUG")
-            return
-        } else {
-        	log("Time is within time range!", "DEBUG")
-        }
-    }*/
 
     if(!isRoomActive()) {
     	setSwitches()
         setDimmers(selectedDimmersLevel)
         //setColorLights(selectedColorLightsLevel, selectedColorLightsColor)
         setColorTemperatureLights(selectedColorTemperatureLightsLevel, selectedColorTemperatureLightsTemperature)
-		setRoomActive(true)
+		if(wasMotion) {
+	        setRoomActive(true)
+            wasMotion = false
+        } else {
+        	wasMotion = false
+        }
         
         if(useTimer) {
         	setSchedule()
@@ -387,8 +422,11 @@ def setSwitches() {
 def setDimmers(valueLevel) {
     
     dimmers.each { it->
-   		it.setLevel(valueLevel)
-        //it.on()
+        if(it.currentValue("switch") != "on") {
+            it.setLevel(valueLevel)
+        } else {
+        	log("Light is already on.", "DEBUG")
+        }
     }
     
     log("End setDimmers(onOff, value).", "DEBUG")
@@ -403,14 +441,12 @@ def setColorLights(valueLevel, valueColor) {
     log("Saturation = ${colorMap['saturation']}.", "DEBUG")
     
     colorLights.each { it->
-        //it.on()
         //it.setColor(colorMap)
     	it.setHue(colorMap['hue'])
         it.setSaturation(colorMap['saturation'])
         it.setLevel(valueLevel)
     }
-    
-    
+
     log("End setColorLights(onOff, valueLevel, valueColor).", "DEBUG")
 }
 
@@ -418,9 +454,12 @@ def setColorTemperatureLights(valueLevel, valueColorTemperature) {
 	log("Begin setColorTemperatureLights(, valueLevel, valueColorTemperature).", "DEBUG")
     
     colorTemperatureLights.each { it->
-    	it.setLevel(valueLevel)
-        it.setColorTemperature(valueColorTemperature)
-        //it.on()
+    	if(it.currentValue("switch") != "on") {
+            it.setLevel(valueLevel)
+            it.setColorTemperature(valueColorTemperature)
+        } else {
+        	log("Light is already on.", "DEBUG")
+        }
     }
     
     log("End setColorTemperatureLights(onOff, valueLevel, valueColorTemperature).", "DEBUG")
@@ -428,8 +467,20 @@ def setColorTemperatureLights(valueLevel, valueColorTemperature) {
 
 def setAllLightsOff() {
 	log("Begin setAllLightsOff().", "DEBUG")
-    	setAllLights("off")
-        log("Turned lights off per the schedule.", "INFO")
+    	if(state.motion) {
+        	motionSensors.each { it->
+            	if(it.currentValue("motion") == "active") {
+                	unschedule()
+                	setSchedule()
+                    log("Motion still detected, rescheduling check.", "INFO")
+                    return
+                }
+            }
+        }
+        
+   	setAllLights("off")
+    log("Turned lights off per the schedule.", "INFO")
+    
     log("End setAllLightsOff().", "DEBUG")
 }
 
@@ -456,10 +507,32 @@ def setAllLights(onOff) {
 def setSchedule() {
 	log("Begin setSchedule().", "DEBUG")
     if(useTimer) {
-    	runIn(timer*60, setAllLightsOff)
+        runIn(timer*60, scheduleElapseTrigger)
         log("Setting timer to turn off lights in ${timer} minutes.", "INFO")
     }
     log("End setSchedule().", "DEBUG")
+}
+
+def scheduleElapseTrigger(){
+	//See if any of the motion sensors still have motion, if they do, don't turn off.
+    if(motionSensors != null) {
+    	def isMotion = false
+        motionSensors.each { it->
+        	if(it.currentValue("motion") == "active") {
+            	isMotion = true
+            }
+        }
+        
+        if(isMotion) {
+        	runIn(timer*60, scheduleElapseTrigger)
+            log("Motion sensor is still active. Resetting timer.", "INFO")
+        } else {
+        	log("Last check for motion detected no motion, turning off.", "INFO")
+            setAllLightsOff()
+        }
+    } else {
+    	setAllLightsOff()
+    }
 }
 
 def reschedule() {
@@ -519,12 +592,159 @@ def getColorMap(val) {
 	return colorMap
 }
 
+//// Begin Time Getters / Setters ////
+def getStartTime() {
+	return state.theStartTime
+}
+
+def setStartTime(val) {
+	state.theStartTime = val
+}
+
+def getEndTime() {
+	return state.theEndTime
+}
+
+def setEndTime(val) {
+	state.theEndTime = val
+}
+
+def getStartTimeType() {
+    return state.theStartTimeSetting
+}
+
+def setStartTimeType(val) {
+    state.theStartTimeSetting = val
+}
+
+def getEndTimeType() {
+    return state.theEndTimeSetting
+}
+
+def setEndTimeType(val) {
+    state.theEndTimeSetting = val
+}
+
+def getStartTimeOffset() {
+	if(state.theStartTimeOffset == null) {
+    	return 0
+    } else {
+    	return state.theStartTimeOffset
+    }
+}
+
+def setStartTimeOffset(val) {
+	if(val == null) {
+    	state.theStartTimeOffset = 0
+    } else {
+    	state.theStartTimeOffset = val
+    }
+}
+
+def getEndTimeOffset() {
+	if(state.theEndTimeOffset == null) {
+    	return 0
+    } else {
+    	return state.theEndTimeOffset
+    }
+}
+
+def setEndTimeOffset(val) {
+	if(val == null) {
+    	state.theEndTimeOffset = 0
+    } else {
+    	state.theEndTimeOffset = val
+    }
+}
+
+def getUseStartTime() {
+	return state.UsingStartTime
+}
+
+def getUseEndTime() {
+	return state.UsingEndTime
+}
+
+def setUseStartTime(val) {
+	state.UsingStartTime = val
+}
+
+def setUseEndTime(val) {
+	state.UsingEndTime = val
+}	
+
+def getCalculatedStartTime() {
+	if(getStartTimeType() == "Custom") {
+    	return inputDateToDate(getStartTime())
+    } else if(getStartTimeType() == "Sunset") {
+    	return getSunset(getStartTimeOffset())
+    } else if(getStartTimeType() == "Sunrise") {
+    	return getSunrise(getStartTimeOffset())
+    }
+}
+
+def getCalculatedEndTime() {
+	if(getEndTimeType() == "Custom") {
+    	return inputDateToDate(getEndTime())
+    } else if(getEndTimeType() == "Sunset") {
+    	return getSunset(getEndTimeOffset())
+    } else if(getEndTimeType() == "Sunrise") {
+    	return getSunrise(getEndTimeOffset())
+    }	
+}
+
+//// End Time Getters / Setters ////
+
 /////// Begin Time / Date Methods ///////////////////////////////////////////////////////////
 
+def outOfRange() {
+    if(getUseStartTime() && getUseEndTime() && useTimeRange) {
+        if(isBetween(getCalculatedStartTime(), getCalculatedEndTime(), getNow())) {
+       		return false
+        } else {
+	        return true
+        }
+    }
+}
+
+
+def setupTimes() {
+	setStartTimeType(startTimeSetting)
+    setEndTimeType(endTimeSetting)
+    
+    if(getStartTimeType() == "None") {
+        setUseStartTime(false)
+    } else if (getStartTimeType() == "Sunrise") {
+    	setUseStartTime(true)
+        setStartTimeOffset(startTimeOffset)
+    } else if (getStartTimeType() == "Sunset") {
+    	setUseStartTime(true)
+        setStartTimeOffset(startTimeOffset)
+    } else if (getStartTimeType() == "Custom") {
+    	setUseStartTime(true)
+        setStartTime(startTimeInput)
+    }
+    
+    if(endTimeType == "None") {
+    	setUseEndTime(false)
+    } else if (endTimeType == "Sunrise") {
+    	setUseEndTime(true)
+        setEndTimeOffset(endTimeOffset)
+    } else if (endTimeType == "Sunset") {
+    	setUseEndTime(true)
+        setEndTimeOffset(endTimeOffset)
+    } else if (endTimeType == "Custom") {
+    	setUseEndTime(true)
+        setEndTime(endTimeInput)
+    }
+}
+
+def getNow() {
+	return new Date()
+}
+
 def minutesBetween(time1, time2) {
-	//log("time1 = ${time1}.", "DEBUG")
-    //log("time2 = ${time2}.", "DEBUG")
-	return (time1.getTime() - time2.getTime()) / 1000 / 60
+	return (time1.getTime() - time2.getTime())/1000/60
 }
 
 def isBefore(time1, time2) {
@@ -543,20 +763,34 @@ def isAfter(time1, time2) {
     }
 }
 
+def isBetween(time1, time2, time3) {
+	if(isAfter(time1, time2)) {
+        time2 = time2 + 1
+    }
+    
+    if(isAfter(time3, time1) && isBefore(time3, time2)) {
+    	return true
+    } else {
+    	return false
+    }
+}
+
 def getSunset() {
-	return getSunset("00:00")
+	return getSunset(0)
 }
 
 def getSunrise() {
-	return getSunrise("00:00")
+	return getSunrise(0)
 }
 
 def getSunset(offset) {
-	return getSunriseAndSunset(sunsetOffset: offset).sunset
+	def offsetString = getOffsetString(offset)
+	return getSunriseAndSunset(sunsetOffset: offsetString).sunset
 }
 
 def getSunrise(offset) {
-	return getSunriseAndSunset(sunriseOffset: offset).sunrise
+	def offsetString = getOffsetString(offset)
+	return getSunriseAndSunset(sunriseOffset: "${offsetString}").sunrise
 }
 
 def getOffsetString(offsetMinutes) {
@@ -571,45 +805,9 @@ def inputDateToDate(val) {
 	return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
 }
 
-def inputDateToTodayDate(val) {
-	def newDate = Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
-    log("newDate = ${newDate}.", "DEBUG")
-    def currentDate = new Date()
-    log("currentDate = ${currentDate}.", "DEBUG")
-    
-    log("${currentDate[Calendar.YEAR]}", "DEBUG")
-    log("${currentDate[Calendar.MONTH]}", "DEBUG")
-    log("${currentDate[Calendar.DATE]}", "DEBUG")
-    
-    
-    
-    //newDate.set(currentDate[Calendar.YEAR], currentDate[Calendar.MONTH], currentDate[Calendar.DATE])
-    //log("UPDATED - newDate = ${newDate}.", "DEBUG")
-    newDate.set(YEAR: currentDate[Calendar.YEAR])
-    log("Year - newDate = ${newDate}.", "DEBUG")
-    newDate.set(MONTH: currentDate[Calendar.MONTH])
-    log("Month - newDate = ${newDate}.", "DEBUG")
-    newDate.set(DATE: currentDate[Calendar.DATE])
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    log("Day - newDate = ${newDate}.", "DEBUG")
-    //newDate.set(HOUR_OF_DAY: currentDate[Calendar.HOUR_OF_DAY])
-    //log("Hour - newDate = ${newDate}.", "DEBUG")
-    //newDate.set(MINUTE: currentDate[Calendar.MINUTE])
-    //log("Minute - newDate = ${newDate}.", "DEBUG")
-    
-    return newDate
-}
-
-def beforeSunrise() {
-	def currentDate = new Date()
-    
-    if(isBefore(currentDate, getSunrise())) {
-    	return true
-    } else {
-    	return false
-    }
+def dateToString(val) {
+	log("val = ${val}.", "DEBUG")
+	return val.format("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
 }
 
 /////// End Time / Date Methods ///////////////////////////////////////////////////////////
