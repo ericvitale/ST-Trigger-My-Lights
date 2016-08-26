@@ -1,6 +1,8 @@
 /**
  *  Trigger My Lights
  *
+ *  2.0.3 - 08/26/16
+ *   -- Resolved issue with sunrise / sunset.
  *  2.0.2 - 08/22/16
  *   -- Ability to schedule triggers to be enabled / disabled based on a time range.
  *   -- Cleaned up logic to make using sensors other than motion sensors more reliable on the second+ event.
@@ -98,7 +100,7 @@ def childStartPage() {
         
         section("Schedule") {
         	input "useTimer", "bool", title: "Turn Off After", required: true, defaultValue: true, submitOnChange: true
-        	if(timer == true) {
+        	if(useTimer == true) {
 	            input "timer", "number", title: "Minutes", required: false, defaultValue: 5
             }
         }
@@ -387,11 +389,11 @@ def triggerLights() {
         setDimmers(selectedDimmersLevel)
         //setColorLights(selectedColorLightsLevel, selectedColorLightsColor)
         setColorTemperatureLights(selectedColorTemperatureLightsLevel, selectedColorTemperatureLightsTemperature)
-		if(wasMotion) {
+		if(state.wasMotion) {
 	        setRoomActive(true)
-            wasMotion = false
+            state.wasMotion = false
         } else {
-        	wasMotion = false
+        	state.wasMotion = false
         }
         
         if(useTimer) {
@@ -467,7 +469,7 @@ def setColorTemperatureLights(valueLevel, valueColorTemperature) {
 
 def setAllLightsOff() {
 	log("Begin setAllLightsOff().", "DEBUG")
-    	if(state.motion) {
+    	/*if(state.motion) {
         	motionSensors.each { it->
             	if(it.currentValue("motion") == "active") {
                 	unschedule()
@@ -476,9 +478,10 @@ def setAllLightsOff() {
                     return
                 }
             }
-        }
+        }*/
         
    	setAllLights("off")
+    setRoomActive(false)
     log("Turned lights off per the schedule.", "INFO")
     
     log("End setAllLightsOff().", "DEBUG")
@@ -764,15 +767,26 @@ def isAfter(time1, time2) {
 }
 
 def isBetween(time1, time2, time3) {
-	if(isAfter(time1, time2)) {
+	/*log("starttime = ${getStartTime()}.", "DEBUG")
+	log("Start Time = ${time1}.", "DEBUG")
+    log("End Time = ${time2}.", "DEBUG")
+    log("Current Time = ${time3}.", "DEBUG")
+    //while(isAfter(time1, time2)) {
+    //	time2 = time2 + 1
+    //    log("time2 = ${time2}.", "DEBUG")
+    //}
+    if(isAfter(time1, time2)) {
         time2 = time2 + 1
+        log("NEW End Time = ${time2}.", "DEBUG")
     }
     
     if(isAfter(time3, time1) && isBefore(time3, time2)) {
     	return true
     } else {
     	return false
-    }
+    }*/
+    //timeOfDayIsBetween(Date start, Date stop, Date value, TimeZone timeZone)
+    return timeOfDayIsBetween(time1, time2, time3, location.timeZone)
 }
 
 def getSunset() {
@@ -802,7 +816,8 @@ def getOffsetString(offsetMinutes) {
 }
 
 def inputDateToDate(val) {
-	return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
+	return timeToday(val, location.timeZone)
+    //return Date.parse("yyyy-MM-dd'T'HH:mm:ss.SSSZ", val)
 }
 
 def dateToString(val) {
